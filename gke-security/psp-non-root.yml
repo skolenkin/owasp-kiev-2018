@@ -1,0 +1,23 @@
+apiVersion: extensions/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: '*'
+  name: 00-psp-non-root
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false # Required to prevent escalations to root.
+  allowedCapabilities:
+  - '*'
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: RunAsAny
+  runAsUser:
+    rule: MustRunAsNonRoot
+    #rule: RunAsAny
+  fsGroup:
+    rule: RunAsAny
+  volumes:
+  - '*'
+

@@ -1,0 +1,1 @@
+gcloud container clusters delete "k8s-cluster" --zone "europe-west1-d"

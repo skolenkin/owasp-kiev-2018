@@ -1,0 +1,253 @@
+
+# Create instance
+gcloud compute instances create test \
+      --subnet=default --image-project=ubuntu-os-cloud \
+      --image=ubuntu-1604-xenial-v20180612 \
+      --machine-type "custom-1-1024" --zone "europe-west1-d" 
+
+# Connect to instance
+gcloud compute ssh test
+useradd test 
+passwd test
+in /etc/ssh/sshd_config
+PasswordAuthentication yes
+/etc/init.d/ssh restart
+
+# Generate ssh key
+mkdir k8s
+cd k8s
+ssh-keygen -t k8s-test
+
+# Create Kubernetes cluster 
+bash create_cluster.sh      
+
+#### NETWORK POLICY ####
+cd networkpolicy/
+### DENY all traffic to an application ###
+# Create container and service
+kubectl run web --image=nginx --labels app=web --expose --port 80
+kubectl get pods
+kubectl describe svc web
+# Run a temporary Pod and make a request to web Service
+kubectl run --rm -i -t --image=alpine test-$RANDOM -- sh
+wget -qO- http://webserver
+exit
+# Apply network policy
+kubectl create -f web-deny-all.yaml
+# Try again
+kubectl run --rm -i -t --image=alpine test-$RANDOM -- sh
+wget -qO- http://webserver
+
+kubectl get pods -n kube-system |grep calico
+kubectl -n kube-system exec -it calico-node-ID sh
+# Install Calicoctl
+https://github.com/projectcalico/calicoctl/releases/download/v3.1.3/calicoctl-linux-amd64 -O /usr/local/bin/calicoctl
+chmox +x /usr/local/bin/calicoctl
+calicoctl get nodes
+# View Network policy in k8s 1.10 or later
+calicoctl get hostendpoint -o yaml
+calicoctl get NetworkPolicy --all-namespaces -o wide
+calicoctl get GlobalNetworkPolicy -o wide
+calicoctl get NetworkPolicy -o yaml knp.default.web-allow-all-namespaces --namespace default
+calicoctl get GlobalNetworkPolicy -o yaml
+# View Network policy in k8s 1.9 or earlier
+calicoctl get hostendpoint -o yaml
+calicoctl get policy -o wide
+calicoctl get policy -o yaml knp.default.web-allow-all-namespaces
+calicoctl get policy -o yaml
+
+kubectl get pods
+kubectl  describe pod web-ID |grep IP:
+
+# Connect to k8s node via ssh
+gcloud compute instances list
+gcloud compute --project "PROJECT-ID" ssh --zone "europe-west1-d" "hostname"
+# For example
+gcloud compute --project "test-12345" ssh --zone "europe-west1-d" "gke-k8s-cluster-default-pool-ID"
+iptables-save -c > rules.txt
+less rules.txt |grep web |grep IP
+# For example:
+less rules.txt |grep web |grep 10.8.2.5
+exit 
+
+kubectl delete deployment web
+kubectl delete service web
+kubectl delete networkpolicy web-deny-all
+
+### LIMIT traffic to an application ###
+kubectl run apiserver --image=nginx --labels app=bookstore,role=api --expose --port 80
+kubectl get pods
+kubectl describe svc apiserver
+kubectl create -f api-allow.yaml
+kubectl run test-$RANDOM --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://apiserver
+exit
+kubectl run test-$RANDOM --rm -i -t --image=alpine --labels app=bookstore,role=frontend -- sh
+wget -qO- --timeout=2 http://apiserver
+exit
+kubectl delete deployment apiserver
+kubectl delete service apiserver
+kubectl delete networkpolicy api-allow
+
+### ALLOW all traffic to an application ###
+kubectl apply -f web-deny-all.yaml
+kubectl run web --image=nginx --labels=app=web --expose --port 80
+kubectl apply -f web-allow-all.yaml
+kubectl run test-$RANDOM --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web
+exit
+kubectl delete deployment,service web
+kubectl delete networkpolicy web-allow-all web-deny-all
+
+????
+### DENY all non-whitelisted traffic to a namespace ###
+kubectl apply -f default-deny-all.yaml
+kubectl run test-$RANDOM -n default --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web
+
+kubectl delete deployment,service web
+kubectl delete networkpolicy default-deny-all
+
+### DENY all traffic from other namespaces ###
+kubectl create namespace dev
+kubectl run web --namespace dev --image=nginx --labels=app=web --expose --port 80
+kubectl apply -f deny-from-other-namespaces.yaml
+kubectl run test-$RANDOM --namespace=default --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web.dev
+exit
+kubectl run test-$RANDOM --namespace=dev --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web.dev
+exit
+kubectl delete deployment web -n dev
+kubectl delete service web -n dev
+kubectl delete networkpolicy deny-from-other-namespaces -n dev
+kubectl delete namespace dev
+
+### ALLOW traffic to an application from all namespaces ###
+kubectl create namespace dev
+kubectl run web --image=nginx --namespace dev --labels=app=web --expose --port 80
+kubectl apply -f web-allow-all-namespaces.yaml
+kubectl run test-$RANDOM --namespace=default --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web.dev
+exit
+kubectl run test-$RANDOM --namespace=dev --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web.dev
+exit
+kubectl delete deployment web -n dev
+kubectl delete service web -n dev
+kubectl delete networkpolicy web-allow-all-namespaces -n dev
+kubectl delete namespace dev
+
+### ALLOW all traffic from a namespace ###
+kubectl run web --image=nginx --labels=app=web --expose --port 80
+kubectl create namespace dev
+kubectl label namespace/dev purpose=testing
+kubectl create namespace prod
+kubectl label namespace/prod purpose=production
+kubectl apply -f web-allow-prod.yaml
+kubectl run test-$RANDOM --namespace=dev --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web.default
+exit
+kubectl run test-$RANDOM --namespace=prod --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://web.default
+exit
+kubectl delete networkpolicy web-allow-prod
+kubectl delete deployment web
+kubectl delete service web
+kubectl delete namespace {prod,dev}
+
+### ALLOW traffic from external clients ###
+kubectl run web --image=nginx --labels=app=web --port 80
+kubectl expose deployment/web --type=LoadBalancer
+kubectl apply -f web-allow-external.yaml
+kubectl get svc
+curl -sk http://PUBLIC-IP
+kubectl apply -f web-allow-external2.yaml
+curl -sk http://PUBLIC-IP
+# Change port 80 to 8080 in web-allow-external2.yaml
+kubectl apply -f web-allow-external2.yaml
+curl -sk http://PUBLIC-IP
+
+kubectl delete deployment web
+kubectl delete service web
+kubectl delete networkpolicy web-allow-external
+
+### ALLOW traffic only to a port of an application ###
+kubectl run apiserver --image=ahmet/app-on-two-ports --labels=app=apiserver
+kubectl create service clusterip apiserver \
+    --tcp 8001:8000 \
+    --tcp 5001:5000
+kubectl apply -f api-allow-5000.yaml
+#  Network Policies will not know the port numbers you exposed the application, such as 8001 and 5001. This is  because they control inter-pod traffic and when you expose Pod as Service, ports are remapped like above. Therefore, you need to use the container port numbers (such as 8000 and 5000) in the NetworkPolicy specification. An alternative less error prone is to refer to the port names (such as metrics and http).
+
+kubectl run test-$RANDOM --rm -i -t --image=alpine -- sh
+wget -qO- --timeout=2 http://apiserver:8001
+wget -qO- --timeout=2 http://apiserver:5001/metrics
+exit
+kubectl run test-$RANDOM --labels=role=monitoring --rm -i -t --image=alpine -- sh 
+wget -qO- --timeout=2 http://apiserver:8001
+wget -qO- --timeout=2 http://apiserver:5001/metrics
+exit
+kubectl delete deployment apiserver
+kubectl delete service apiserver
+kubectl delete networkpolicy api-allow-5000
+
+### ALLOW traffic from apps using multiple selectors ###
+kubectl run db --image=redis:4 --port 6379 --expose --labels app=bookstore,role=db
+kubectl apply -f redis-allow-services.yaml
+kubectl run test-$RANDOM --labels=app=inventory,role=web --rm -i -t --image=alpine -- sh
+nc -v -w 2 db 6379
+exit
+kubectl run test-$RANDOM --labels=app=other --rm -i -t --image=alpine -- sh
+nc -v -w 2 db 6379
+exit
+kubectl delete deployment db
+kubectl delete service db
+kubectl delete networkpolicy redis-allow-services
+
+### DENY egress traffic from an application ###
+kubectl run web --image=nginx --port 80 --expose --labels app=web
+kubectl apply -f foo-deny-egress.yaml
+kubectl run --rm --restart=Never --image=alpine -i -t -l app=foo test -- sh
+wget -qO- --timeout 1 http://web:80/
+wget -qO- --timeout 1 http://www.example.com/
+exit
+kubectl apply -f foo-deny-egress2.yaml
+kubectl run --rm --restart=Never --image=alpine -i -t -l app=foo test -- sh
+wget --timeout 1 -O- http://web
+wget --timeout 1 -O- http://www.example.com
+ping google.com
+exit
+kubectl delete deployment,service cache
+kubectl delete deployment,service web
+kubectl delete networkpolicy foo-deny-egress
+
+### DENY all non-whitelisted traffic from a namespace ###
+kubectl create -f default-deny-all-egress.yaml
+kubectl run --rm --restart=Never --image=alpine -i -t -l app=foo test -- sh
+ping google.com
+kubectl delete networkpolicy default-deny-all-egress
+# Check again
+ping google.com 
+exit
+
+### DENY external egress traffic ###
+# From version 1.8.4-gke.0
+kubectl create -f foo-deny-external-egress.yaml
+kubectl run web --image=nginx --port 80 --expose --labels app=web
+kubectl run --rm --restart=Never --image=alpine -i -t -l app=foo test -- sh
+wget -O- --timeout 1 http://web:80
+wget -O- --timeout 1 http://www.example.com
+exit
+kubectl delete deployment,service web
+kubectl delete networkpolicy foo-deny-external-egress
+
+### ALLOW traffic from some pods in another namespace ###
+
+
+# Delete instance
+gcloud compute instances delete test --zone "europe-west1-d"
+# Delete cluster
+bash delete_cluster.sh
+
+
